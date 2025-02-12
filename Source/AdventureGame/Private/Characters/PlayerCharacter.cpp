@@ -10,11 +10,8 @@
 #include "Engine/OverlapResult.h"
 
 
-APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer.SetDefaultSubobjectClass<UCustomCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
+APlayerCharacter::APlayerCharacter()
 {
-	MovementComponent = Cast<UCustomCharacterMovementComponent>(GetCharacterMovement());
-
 	PrimaryActorTick.bCanEverTick = true;
 
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -24,18 +21,11 @@ APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	TPSCameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("ThirdPersonCamera"));
 	TPSCameraComponent->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	TPSCameraComponent->bUsePawnControlRotation = false;
-
-
 }
 
 void APlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
-	_PlayerState = EPlayerState::Free;
-	AttackState = EAttackState::None;
-
-	bCanAttack = true;
 }
 
 void APlayerCharacter::PossessedBy(AController* NewController)
@@ -61,49 +51,18 @@ void APlayerCharacter::CompleteMounting()
 	}
 }
 
-void APlayerCharacter::SaveAttack()
-{
-	bCanAttack = true;
-	AttackIndex += 1;
-}
-
-void APlayerCharacter::EndAttack()
-{
-	bCanAttack = true;
-	AttackState = EAttackState::None;
-	AttackIndex = 0;
-}
-
 void APlayerCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	bIsMoving = !GetVelocity().IsNearlyZero();
-
-	bIsClimbing = MovementComponent->IsClimbing();
-
-	if(bMoveInput)
-	{
-		MovementDirection = FMath::Vector2DInterpTo(MovementDirection, MovementVector, DeltaTime, 5.f);
-	}
-	else
-	{
-		MovementDirection = FMath::Vector2DInterpTo(MovementDirection, FVector2D::ZeroVector, DeltaTime, 5.f);
-	}
-
 	bMoveInput = false;
 
-	if (GetCharacterMovement()->Velocity.Z <= 0)
+	if (bDodgeRotation)
 	{
-		bIsJumping = false;
+		DodgeRotation(DeltaTime);
 	}
 
-	GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Red, FString::Printf(TEXT("Movement Vector: %s"), *MovementDirection.ToString()));
-
-	if (bAttackRotation)
-	{
-		RotateTowardsLocation(AttackLocation);
-	}
+	UpdateCameraRotation(DeltaTime);
 }
 
 void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -114,21 +73,23 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	{
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &APlayerCharacter::Look);
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &APlayerCharacter::Move);
-		EnhancedInputComponent->BindAction(ClimbAction, ETriggerEvent::Started, this, &APlayerCharacter::Climb);
-		EnhancedInputComponent->BindAction(ReleaseAction, ETriggerEvent::Started, this, &APlayerCharacter::Release);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &APlayerCharacter::InitJump);
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &APlayerCharacter::Interact);
-		EnhancedInputComponent->BindAction(PrimaryAttackAction, ETriggerEvent::Started, this, &APlayerCharacter::PrimaryAttack);
-		EnhancedInputComponent->BindAction(SecondaryAttackAction, ETriggerEvent::Started, this, &APlayerCharacter::SecondaryAttack);
+		EnhancedInputComponent->BindAction(PrimaryAttackAction, ETriggerEvent::Started, this, &APlayerCharacter::PrimaryAttackInput);
+		EnhancedInputComponent->BindAction(SecondaryAttackAction, ETriggerEvent::Started, this, &APlayerCharacter::SecondaryAttackInput);
+		EnhancedInputComponent->BindAction(LockOnAction, ETriggerEvent::Started, this, &APlayerCharacter::LockOn);
+		EnhancedInputComponent->BindAction(WalkAction, ETriggerEvent::Started, this, &APlayerCharacter::Walk);
+		EnhancedInputComponent->BindAction(WalkAction, ETriggerEvent::Completed, this, &APlayerCharacter::EndWalk);
+		EnhancedInputComponent->BindAction(DodgeAction, ETriggerEvent::Started, this, &APlayerCharacter::DodgeInput);
 	}
 }
 
 void APlayerCharacter::Move(const FInputActionValue& Value)
 {
-	if (_PlayerState != EPlayerState::Free)
+	if (CharacterState != ECharacterState::Free)
 	{
 		return;
 	}
+	GetMesh()->GetAnimInstance()->StopAllMontages(0.25f);
 
 	bMoveInput = true;
 
@@ -141,24 +102,11 @@ void APlayerCharacter::Move(const FInputActionValue& Value)
 
 	FVector RightDirection;
 
-	if (MovementComponent->IsClimbing())
-	{
-		ForwardDirection = FVector::CrossProduct(MovementComponent->GetClimbSurfaceNormal(), -GetActorRightVector());
+	ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
 
-		RightDirection = FVector::CrossProduct(MovementComponent->GetClimbSurfaceNormal(), GetActorUpVector());
-	}
-	else
-	{
-		ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-		RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-	}
-
-	//GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Red, FString::Printf(TEXT("Forward: %s"), *ForwardDirection.ToString()));
-	//GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Red, FString::Printf(TEXT("Right: %s"), *RightDirection.ToString()));
-
-	//print movement vector
-	//GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Red, FString::Printf(TEXT("Movement Vector: %s"), *MovementVector.ToString()));
+	MovementInput = FVector2D((ForwardDirection * MovementVector.Y + RightDirection * MovementVector.X).GetSafeNormal2D());
 	
 	AddMovementInput(ForwardDirection, MovementVector.Y);
 	AddMovementInput(RightDirection, MovementVector.X);
@@ -170,28 +118,6 @@ void APlayerCharacter::Look(const FInputActionValue& Value)
 
 	AddControllerYawInput(LookAxisVector.X);
 	AddControllerPitchInput(-LookAxisVector.Y);
-}
-
-void APlayerCharacter::Climb(const FInputActionValue& Value)
-{
-	MovementComponent->Climb();
-}
-
-void APlayerCharacter::Release(const FInputActionValue& Value)
-{
-	MovementComponent->Release();
-}
-
-void APlayerCharacter::InitJump(const FInputActionValue& Value)
-{
-	Jump();
-	
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && JumpMontage)
-	{
-		AnimInstance->Montage_Play(JumpMontage, 1.0f);
-	}
-
 }
 
 void APlayerCharacter::Interact(const FInputActionValue& Value)
@@ -208,7 +134,7 @@ void APlayerCharacter::Interact(const FInputActionValue& Value)
 
 	if (GetWorld()->LineTraceSingleByChannel(HitResult, Start, End, ECC_Visibility, QueryParams))
 	{
-		if (_PlayerState != EPlayerState::Mounted)
+		if (CharacterState != ECharacterState::Mounted)
 		{
 			if (AHorse* Horse = Cast<AHorse>(HitResult.GetActor()))
 			{
@@ -224,88 +150,57 @@ void APlayerCharacter::Interact(const FInputActionValue& Value)
 	}
 }
 
-void APlayerCharacter::PrimaryAttack(const FInputActionValue& Value)
+void APlayerCharacter::PrimaryAttackInput(const FInputActionValue& Value)
 {
-	AActor* NearestEnemy = FindNearestEnemy();
+	PrimaryAttack();
+}
 
-	if(NearestEnemy)
+void APlayerCharacter::SecondaryAttackInput(const FInputActionValue& Value)
+{
+	SecondaryAttack();
+}
+
+void APlayerCharacter::LockOn(const FInputActionValue& Value)
+{
+	if (bLockOn)
 	{
-		bAttackRotation = true;
-		AttackLocation = NearestEnemy->GetActorLocation();
+		LockOnTarget = nullptr;
+		bLockOn = false;
+		
 	}
 	else
 	{
-		bAttackRotation = false;
-	}
-
-	if (bCanAttack && CurrentWeapon && PrimaryAttackMontages.Num() > 0)
-	{
-		if (AttackState != EAttackState::Primary)
+		LockOnTarget = FindNearestEnemy();
+		if (LockOnTarget->IsValidLowLevel())
 		{
-			AttackIndex = 0;
+			Cast<ACharacterBase>(LockOnTarget)->OnCharacterKilled.AddUniqueDynamic(this, &APlayerCharacter::OnLockOnTargetDeath);
+			bLockOn = true;
 		}
-
-		AttackState = EAttackState::Primary;
-
-		bCanAttack = false;
-
-		MaxAttackIndex = PrimaryAttackMontages.Num() - 1;
-
-		if (AttackIndex > MaxAttackIndex)
-		{
-			AttackIndex = 0;
-		}
-
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-
-		if (AnimInstance && PrimaryAttackMontages[AttackIndex])
-		{
-			AnimInstance->Montage_Play(PrimaryAttackMontages[AttackIndex], 1.0f);
-		}
-
-		CurrentWeapon->bCanDamage = true;
 	}
 }
 
-void APlayerCharacter::SecondaryAttack(const FInputActionValue& Value)
+void APlayerCharacter::Walk(const FInputActionValue& Value)
 {
-	AActor* NearestEnemy = FindNearestEnemy();
+	MoveState = EMoveState::Walking;
+}
 
-	if (NearestEnemy)
+void APlayerCharacter::EndWalk(const FInputActionValue& Value)
+{
+	MoveState = EMoveState::Running;
+}
+
+void APlayerCharacter::DodgeInput(const FInputActionValue& Value)
+{
+	if (CharacterState == ECharacterState::Free)
 	{
-		bAttackRotation = true;
-		AttackLocation = NearestEnemy->GetActorLocation();
-	}
-	else
-	{
-		bAttackRotation = false;
-	}
+		CharacterState = ECharacterState::Dodging;
 
-	if (bCanAttack && CurrentWeapon && SecondaryAttackMontages.Num() > 0)
-	{
-		if(AttackState != EAttackState::Secondary)
-		{
-			AttackIndex = 0;
-		}
+		float TargetYaw = FMath::Atan2(MovementInput.Y, MovementInput.X) * (180.0f / PI);
 
-		AttackState = EAttackState::Secondary;
+		DodgeStartRotation = GetActorRotation();
+		DodgeTargetRotation = FRotator(0.0f, TargetYaw, 0.0f);
 
-		bCanAttack = false;
-
-		MaxAttackIndex = SecondaryAttackMontages.Num() - 1;
-
-		if (AttackIndex > MaxAttackIndex)
-		{
-			AttackIndex = 0;
-		}
-
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-		if (AnimInstance && SecondaryAttackMontages[AttackIndex])
-		{
-			AnimInstance->Montage_Play(SecondaryAttackMontages[AttackIndex], 1.0f);
-		}
-
-		CurrentWeapon->bCanDamage = true;
+		bDodgeRotation = true;
 	}
 }
 
@@ -332,7 +227,7 @@ void APlayerCharacter::Mount(FString MountColliderName)
 		SetActorLocationAndRotation(MountLocation, MountRotation);
 	}
 
-	_PlayerState = EPlayerState::Mounted;
+	CharacterState = ECharacterState::Mounted;
 
 	APlayerController* PlayerController = Cast<APlayerController>(GetController());
 
@@ -356,7 +251,6 @@ AActor* APlayerCharacter::FindNearestEnemy()
 	QueryParams.bTraceComplex = false;
 	QueryParams.AddIgnoredActor(this);
 
-	// Perform the overlap query
 	bool bOverlap = GetWorld()->OverlapMultiByChannel(
 		OverlapResults,
 		GetActorLocation(),
@@ -368,17 +262,18 @@ AActor* APlayerCharacter::FindNearestEnemy()
 
 	if (!bOverlap)
 	{
-		return nullptr; // No overlapping actors
+		return nullptr;
 	}
-
-	//print names of overlapping actors
 
 	for (const FOverlapResult& OverlapResult : OverlapResults)
 	{
 		ACharacterBase* OverlappingCharacter = Cast<ACharacterBase>(OverlapResult.GetActor());
 		if (OverlappingCharacter && !TargetEnemies.Contains(OverlappingCharacter))
 		{
-			if(OverlappingCharacter->GetGenericTeamId() != TeamID)
+			//print team id
+			//GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Magenta, FString::Printf(TEXT("Team ID: %d"), OverlappingCharacter->GetGenericTeamId().GetId()));
+
+			if(OverlappingCharacter->GetGenericTeamId() != FGenericTeamId::NoTeam && OverlappingCharacter->GetGenericTeamId() != GetGenericTeamId())
 			{
 				TargetEnemies.Add(OverlappingCharacter);
 			}
@@ -402,20 +297,89 @@ AActor* APlayerCharacter::FindNearestEnemy()
 	return nullptr;
 }
 
-void APlayerCharacter::RotateTowardsLocation(const FVector& TargetLocation)
+void APlayerCharacter::UpdateCameraRotation(float DeltaTime)
 {
-	FVector CurrentLocation = GetActorLocation();
+	if (bLockOn && LockOnTarget->IsValidLowLevel())
+	{
+		//print lock on target name
+		//GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Red, FString::Printf(TEXT("Lock On Target: %s"), *LockOnTarget->GetName()));
 
-	FVector Direction = TargetLocation - CurrentLocation;
-	Direction.Z = 0;
-	Direction.Normalize();
+		float Distance = FVector::Dist(LockOnTarget->GetActorLocation(), GetActorLocation());
 
-	FRotator TargetRotation = Direction.Rotation();
+		if (Distance > LockCutOffDistance)
+		{
+			bLockOn = false;
+			LockOnTarget = nullptr;
+			GetCharacterMovement()->bOrientRotationToMovement = true;
 
-	FRotator CurrentRotation = GetActorRotation();
-	FRotator NewRotation = FMath::RInterpTo(CurrentRotation, TargetRotation, GetWorld()->GetDeltaSeconds(), 5.0f);
+			return;
+		}
+
+		GetCharacterMovement()->bOrientRotationToMovement = false;
+
+		FVector Direction = LockOnTarget->GetActorLocation() - GetActorLocation();
+		FRotator DesiredRotation = FRotationMatrix::MakeFromX(Direction).Rotator();
+
+		//add pitch relative to distance to target
+		float Pitch = FMath::Lerp(-45.f, -10.f, Distance / LockCutOffDistance);
+
+		DesiredRotation.Pitch += Pitch;
+
+		// Interpolate smoothly between current and desired rotation
+		FRotator NewRotation = FMath::RInterpTo(GetControlRotation(), DesiredRotation, DeltaTime, 10.0f);
+		Controller->SetControlRotation(NewRotation);
+
+		if (CharacterState != ECharacterState::Dodging)
+		{
+			FRotator TargetCharacterRotation = FRotator(0.0f, NewRotation.Yaw, 0.0f);
+			FRotator CharacterRotation = FMath::RInterpTo(GetActorRotation(), TargetCharacterRotation, DeltaTime, 10.0f);
+			SetActorRotation(CharacterRotation);
+		}
+	}
+	else
+	{
+		GetCharacterMovement()->bOrientRotationToMovement = true;
+	}
+}
+
+void APlayerCharacter::OnLockOnTargetDeath()
+{
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Lock On Target Died"));
+	LockOnTarget = FindNearestEnemy();
+	if (!LockOnTarget->IsValidLowLevel())
+	{
+		bLockOn = false;
+	}
+	else
+	{
+		Cast<ACharacterBase>(LockOnTarget)->OnCharacterKilled.AddUniqueDynamic(this, &APlayerCharacter::OnLockOnTargetDeath);
+	}
+}
+
+void APlayerCharacter::DodgeRotation(float DeltaTime)
+{
+	DodgeRotationTimer += DeltaTime;
+
+	float Alpha = FMath::Clamp(DodgeRotationTimer / DodgeRotationDuration, 0.0f, 1.0f);
+
+	FRotator NewRotation = FMath::Lerp(DodgeStartRotation, DodgeTargetRotation, Alpha);
 
 	SetActorRotation(NewRotation);
+
+	if (DodgeRotationTimer >= DodgeRotationDuration)
+	{
+		SetActorRotation(DodgeTargetRotation);
+
+		bDodgeRotation = false;
+
+		DodgeRotationTimer = 0.f;
+
+		Dodge();
+	}
 }
+
+
+
+
 
 

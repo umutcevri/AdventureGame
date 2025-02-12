@@ -4,6 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Components/HealthComponent.h"
+#include "Characters/CharacterBase.h"
+#include "Characters/PlayerCharacter.h"
 #include "WeaponBase.generated.h"
 
 UCLASS()
@@ -19,34 +22,27 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
-	UFUNCTION(BlueprintCallable)
-	void EnableDamage();
-
-	UFUNCTION(BlueprintCallable)
-	void DisableDamage();
-
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	bool bCanDamage;
+	UFUNCTION(BlueprintCallable)
+	virtual void EnableDamage();
 
-private:
-	UPROPERTY(EditAnywhere, Category = "Weapon")
-	TObjectPtr<UStaticMeshComponent> WeaponMesh;
+	UFUNCTION(BlueprintCallable)
+	virtual void DisableDamage();
 
-	void PerformWeaponTrace();
-
-	FTimerHandle WeaponTraceTimerHandle;
-
-	UPROPERTY(EditAnywhere, Category = "Weapon")
-	float WeaponTraceInterval = 0.01f;
-
-	UPROPERTY(EditAnywhere, Category = "Weapon")
-	float TraceSphereRadius = 20.f;
+	UFUNCTION(BlueprintCallable)
+	void PlayWeaponSound();
 
 	TArray<AActor*> HitActors;
 
-	TObjectPtr<class ACharacterBase> OwnerCharacter;
+	TObjectPtr<ACharacterBase> OwnerCharacter;
 
+	UPROPERTY(EditAnywhere, Category = "Weapon")
+	TObjectPtr<UStaticMeshComponent> WeaponMesh;
+
+private:
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	USoundBase* WeaponSound;
 };

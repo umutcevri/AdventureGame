@@ -2,24 +2,33 @@
 
 
 #include "Components/HealthComponent.h"
+#include "Characters/CharacterBase.h"
 
 // Sets default values for this component's properties
 UHealthComponent::UHealthComponent()
 {
-	MaxHealth = 100.0f;
-	Health = MaxHealth;
+	MaxHealth = 100.f;
+
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
 void UHealthComponent::ChangeHealth(float Amount)
 {
-	Health = FMath::Clamp(Health + Amount, 0.0f, MaxHealth);
+	Health = FMath::Clamp(Health + Amount, 0.f, MaxHealth);
 
-	if (Health == 0.0f)
+	if (bIsAlive && Health == 0.f)
 	{
+		bIsAlive = false;
 		if (AActor* Owner = GetOwner())
 		{
-			Owner->Destroy();
+			if (ACharacterBase* OwnerCharacter = Cast<ACharacterBase>(Owner))
+			{
+				OwnerCharacter->KillCharacter();
+			}
+			else
+			{
+				Owner->Destroy();
+			}
 		}
 	}
 
@@ -31,7 +40,7 @@ void UHealthComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	Health = FMath::Clamp(Health, 0.0f, MaxHealth);
+	Health = MaxHealth;
 }
 
 

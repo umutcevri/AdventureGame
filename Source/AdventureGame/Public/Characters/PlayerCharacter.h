@@ -6,15 +6,8 @@
 #include "Characters/CharacterBase.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "Components/CustomCharacterMovementComponent.h"
 #include "PlayerCharacter.generated.h"
 
-enum class EAttackState : uint8
-{
-	None,
-	Primary,
-	Secondary,
-};
 
 UCLASS()
 class ADVENTUREGAME_API APlayerCharacter : public ACharacterBase
@@ -23,7 +16,7 @@ class ADVENTUREGAME_API APlayerCharacter : public ACharacterBase
 	
 public:
 	// Sets default values for this character's properties
-	APlayerCharacter(const FObjectInitializer& ObjectInitializer);
+	APlayerCharacter();
 
 protected:
 	// Called when the game starts or when spawned
@@ -31,19 +24,8 @@ protected:
 
 	virtual void PossessedBy(AController* NewController) override;
 
-	UPROPERTY(Category = Character, VisibleAnywhere, BlueprintReadOnly)
-	UCustomCharacterMovementComponent* MovementComponent;
-
-	
-
 	UFUNCTION(BlueprintCallable)
 	void CompleteMounting();
-
-	UFUNCTION(BlueprintCallable)
-	void SaveAttack();
-
-	UFUNCTION(BlueprintCallable)
-	void EndAttack();
 
 public:
 	// Called every frame
@@ -52,12 +34,8 @@ public:
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-	UFUNCTION(BlueprintPure)
-	FORCEINLINE UCustomCharacterMovementComponent* GetCustomCharacterMovement() const { return MovementComponent; }
-
-	bool bAttackRotation = false;
-
 private:
+
 	UPROPERTY(EditAnywhere, Category = "Input")
 	TObjectPtr<UInputMappingContext> DefaultMappingContext;
 
@@ -68,15 +46,6 @@ private:
 	TObjectPtr<UInputAction> LookAction;
 
 	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> ClimbAction;
-
-	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> ReleaseAction;
-
-	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> JumpAction;
-
-	UPROPERTY(EditAnywhere, Category = "Input")
 	TObjectPtr<UInputAction> InteractAction;
 
 	UPROPERTY(EditAnywhere, Category = "Input")
@@ -84,6 +53,15 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Input")
 	TObjectPtr<UInputAction> SecondaryAttackAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	TObjectPtr<UInputAction> LockOnAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	TObjectPtr<UInputAction> WalkAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	TObjectPtr<UInputAction> DodgeAction;
 
 	UPROPERTY(EditAnywhere, Category = "Camera")
 	TObjectPtr<class UCameraComponent> TPSCameraComponent;
@@ -95,19 +73,23 @@ private:
 
 	void Look(const FInputActionValue& Value);
 
-	void Climb(const FInputActionValue& Value);
-
-	void Release(const FInputActionValue& Value);
-
-	void InitJump(const FInputActionValue& Value);
-
 	void Interact(const FInputActionValue& Value);
 
-	void PrimaryAttack(const FInputActionValue& Value);
+	void PrimaryAttackInput(const FInputActionValue& Value);
 
-	void SecondaryAttack(const FInputActionValue& Value);
+	void SecondaryAttackInput(const FInputActionValue& Value);
+
+	void LockOn(const FInputActionValue& Value);
+
+	void Walk(const FInputActionValue& Value);
+
+	void EndWalk(const FInputActionValue& Value);
+
+	void DodgeInput(const FInputActionValue& Value);
 
 	FVector2D MovementVector;
+
+	FVector2D MovementInput;
 
 	bool bMoveInput;
 
@@ -124,26 +106,29 @@ private:
 
 	void Mount(FString MountColliderName);
 
-	UPROPERTY(EditAnywhere, Category = "Weapon")
-	TArray<TObjectPtr<UAnimMontage>> PrimaryAttackMontages;
-
-	UPROPERTY(EditAnywhere, Category = "Weapon")
-	TArray<TObjectPtr<UAnimMontage>> SecondaryAttackMontages;
-
-	bool bCanAttack;
-
-	int AttackIndex;
-
-	int MaxAttackIndex;
-	EAttackState AttackState;
-
 	AActor* FindNearestEnemy();
+	TWeakObjectPtr<AActor> LockOnTarget;
 
+	bool bLockOn = false;
 	
+	void UpdateCameraRotation(float DeltaTime);
 
-	FVector AttackLocation;
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float LockCutOffDistance = 1500.f;
 
-	void RotateTowardsLocation(const FVector& TargetLocation);
+	UFUNCTION()
+	void OnLockOnTargetDeath();
 
-	
+	bool bDodgeRotation = false;
+
+	void DodgeRotation(float DeltaTime);
+
+	UPROPERTY(EditAnywhere, Category = "Dodge")
+	float DodgeRotationDuration = 0.25f;
+
+	float DodgeRotationTimer = 0.f;
+
+	FRotator DodgeStartRotation;
+
+	FRotator DodgeTargetRotation;
 };

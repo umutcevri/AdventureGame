@@ -18,6 +18,10 @@ public:
 
 	void ChangeHealth(float Amount);
 
+	float GetHealth() const { return Health; }
+
+	float GetMaxHealth() const { return MaxHealth; }
+
 protected:
 	// Called when the game starts
 	virtual void BeginPlay() override;
@@ -32,4 +36,6 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Health")
 	float MaxHealth;
+
+	bool bIsAlive = true;
 };
